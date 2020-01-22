@@ -5,6 +5,8 @@ const Filter = require("bad-words");
 const rateLimit = require("express-rate-limit");
 
 const app = express();
+const http = require("http").createServer(app);
+const io = require("socket.io")(http);
 
 const db = monk(process.env.MONGO_URI || "localhost:27017/meower");
 const mews = db.get("mews");
@@ -12,14 +14,6 @@ const filter = new Filter();
 
 app.use(cors());
 app.use(express.json());
-
-// app.post(
-//   "/",
-//   rateLimit({
-//     windowMs: 30 * 1000, // 30 secs
-//     max: 1 // limit each IP to 100 requests per windowMs
-//   })
-// );
 
 app.get("/", (req, res) => {
   res.json({
@@ -30,6 +24,24 @@ app.get("/", (req, res) => {
 app.get("/mews", (req, res) => {
   mews.find().then(mews => {
     res.json(mews);
+  });
+});
+
+const users = {};
+
+io.on("connection", socket => {
+  socket.on("chat-message", message => {
+    socket.broadcast.emit("chat-message", { message, name: users[socket.id] });
+  });
+
+  socket.on("join", name => {
+    users[socket.id] = name;
+    socket.broadcast.emit("join", name);
+  });
+
+  socket.on("disconnect", () => {
+    socket.broadcast.emit("leave", users[socket.id]);
+    delete users[socket.id];
   });
 });
 
@@ -71,6 +83,6 @@ app.post("/mews", (req, res) => {
 });
 
 const port = process.env.PORT || 5000;
-app.listen(port, () => {
+http.listen(port, () => {
   console.log(`Listening on http://localhost:${port}`);
 });
